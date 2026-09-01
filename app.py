@@ -1,151 +1,208 @@
 import streamlit as st
 import requests
+from datetime import datetime
 
-st.set_page_config(page_title="CFB Excitement Radar", page_icon="🏈", layout="wide")
+st.set_page_config(page_title="CFB Excitement Radar & Quad-Box", page_icon="🏈", layout="wide")
 
-st.title("🏈 College Football Excitement Radar")
-st.caption("Live games ranked by drama, score closeness, and upset potential.")
+# ESPN Conference / Group ID mapping
+CONFERENCE_MAP = {
+    "All FBS": 80,
+    "SEC": 8,
+    "Big Ten": 4,
+    "Big 12": 9,
+    "ACC": 1,
+    "Pac-12": 15,
+    "American (AAC)": 151,
+    "Mountain West": 17,
+    "Sun Belt": 37,
+    "Conference USA": 12,
+    "MAC": 15
+}
 
-# Manual refresh button
-if st.button("🔄 Refresh Scores"):
-    st.rerun()
+# --- SIDEBAR CONTROLS ---
+with st.sidebar:
+    st.title("🏈 Radar Controls")
+    selected_conf = st.selectbox("Filter by Conference", list(CONFERENCE_MAP.keys()))
+    top25_only = st.checkbox("Ranked Teams Only (Top 25)", value=False)
+    live_only = st.checkbox("Live Games Only (Currently on TV)", value=False)
+    
+    st.divider()
+    if st.button("🔄 Refresh Data Now"):
+        st.rerun()
+    st.caption("Auto-refreshes when filters change. ESPN scoreboard data updates in real-time.")
 
-def get_live_cfb_games():
-    url = "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard"
+# --- API DATA FETCHER ---
+@st.cache_data(ttl=30)
+def fetch_games(group_id):
+    url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=100"
     try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            return response.json().get('events', [])
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            return res.json().get('events', [])
     except Exception as e:
-        st.error(f"Error fetching live data: {e}")
+        st.error(f"Error connecting to ESPN: {e}")
     return []
 
-def calculate_excitement(game):
-    competition = game['competitions'][0]
-    status = competition['status']
-    state = status['type']['state']
-    
-    # 0 = Pre-game, 1 = In-progress, 2 = Final
-    if state == 'pre':
-        return 0, "Scheduled", "Upcoming"
-    if state == 'post':
-        return 5, "Final", "Game finished"
+def parse_game(game):
+    comp = game['competitions'][0]
+    status = comp['status']
+    state = status['type']['state'] # 'pre', 'in', 'post'
     
     period = status.get('period', 1)
     clock = status.get('displayClock', '0:00')
-    competitors = competition['competitors']
+    detail = status['type'].get('detail', '')
     
-    team1, team2 = competitors[0], competitors[1]
-    name1, name2 = team1['team']['shortDisplayName'], team2['team']['shortDisplayName']
-    score1, score2 = int(team1.get('score', 0)), int(team2.get('score', 0))
-    rank1 = team1.get('curatedRank', {}).get('current', 99)
-    rank2 = team2.get('curatedRank', {}).get('current', 99)
+    competitors = comp['competitors']
+    home = competitors[0]
+    away = competitors[1]
     
-    diff = abs(score1 - score2)
+    home_name = home['team']['shortDisplayName']
+    away_name = away['team']['shortDisplayName']
+    home_score = int(home.get('score', 0))
+    away_score = int(away.get('score', 0))
+    
+    home_rank = home.get('curatedRank', {}).get('current', 99)
+    away_rank = away.get('curatedRank', {}).get('current', 99)
+    
+    broadcasts = comp.get('broadcasts', [{}])
+    tv_name = broadcasts[0].get('names', ['TV N/A'])[0] if broadcasts else 'TV N/A'
+    
+    # Calculate Excitement Score (0 - 100)
     score = 0
     reasons = []
-
-    # Score Closeness
-    if diff == 0:
-        score += 35
-        reasons.append("Tied game")
-    elif diff <= 3:
-        score += 30
-        reasons.append(f"Field goal game (±{diff})")
-    elif diff <= 8:
-        score += 20
-        reasons.append(f"One-possession game (±{diff})")
-    elif diff <= 14:
-        score += 10
-        reasons.append(f"Two-possession game (±{diff})")
-
-    # Time factor
-    if period > 4:
-        score += 45
-        reasons.append("🚨 OVERTIME")
-    elif period == 4:
-        score += 30
-        reasons.append("4th Quarter Crunch")
-    elif period == 3:
-        score += 15
-
-    # Upset factor
-    is_upset = False
-    if rank1 <= 25 and rank2 > 25 and score2 >= score1:
-        is_upset = True
-        reasons.append(f"Upset Alert: {name2} leads #{rank1} {name1}")
-    elif rank2 <= 25 and rank1 > 25 and score1 >= score2:
-        is_upset = True
-        reasons.append(f"Upset Alert: {name1} leads #{rank2} {name2}")
-    elif rank1 <= 25 and rank2 <= 25:
-        score += 10
-        reasons.append("Top 25 Matchup")
+    
+    if state == 'in':
+        diff = abs(home_score - away_score)
         
-    if is_upset and period >= 3:
-        score += 25
+        # Closeness
+        if diff == 0:
+            score += 35
+            reasons.append("Tied")
+        elif diff <= 3:
+            score += 30
+            reasons.append(f"±{diff} pts")
+        elif diff <= 8:
+            score += 20
+            reasons.append(f"±{diff} pts")
+        elif diff <= 14:
+            score += 10
+            reasons.append(f"±{diff} pts")
+            
+        # Quarter Leverage
+        if period > 4:
+            score += 45
+            reasons.append("🚨 OVERTIME")
+        elif period == 4:
+            score += 30
+            reasons.append("4th Quarter")
+        elif period == 3:
+            score += 15
+            
+        # Upset Alert
+        if home_rank <= 25 and away_rank > 25 and away_score >= home_score:
+            score += 25
+            reasons.append(f"Upset: {away_name} over #{home_rank}")
+        elif away_rank <= 25 and home_rank > 25 and home_score >= away_score:
+            score += 25
+            reasons.append(f"Upset: {home_name} over #{away_rank}")
+        elif home_rank <= 25 and away_rank <= 25:
+            score += 10
+            reasons.append("Top 25 Matchup")
+            
+    elif state == 'post':
+        score = 5
+        reasons.append("Final")
+    else:
+        score = 0
+        reasons.append("Upcoming")
+        
+    total_score = min(100, score)
+    
+    return {
+        "id": game['id'],
+        "state": state,
+        "away_str": f"{f'#{away_rank} ' if away_rank <= 25 else ''}{away_name}",
+        "home_str": f"{f'#{home_rank} ' if home_rank <= 25 else ''}{home_name}",
+        "away_score": away_score,
+        "home_score": home_score,
+        "home_rank": home_rank,
+        "away_rank": away_rank,
+        "status_detail": detail,
+        "tv": tv_name,
+        "score": total_score,
+        "note": ", ".join(reasons) if reasons else ""
+    }
 
-    total = min(100, score)
-    status_label = f"Q{period} {clock}"
-    return total, status_label, ", ".join(reasons) if reasons else "Normal play"
+# --- LOAD DATA ---
+group_id = CONFERENCE_MAP[selected_conf]
+events = fetch_games(group_id)
+parsed = [parse_game(e) for e in events]
 
-# Fetch & display
-events = get_live_cfb_games()
+# --- FILTERING ---
+if top25_only:
+    parsed = [g for g in parsed if g['home_rank'] <= 25 or g['away_rank'] <= 25]
 
-if not events:
-    st.info("No college football games currently found on ESPN's scoreboard.")
+if live_only:
+    parsed = [g for g in parsed if g['state'] == 'in']
+
+# Sort by Excitement Score descending
+parsed.sort(key=lambda x: x['score'], reverse=True)
+live_games = [g for g in parsed if g['state'] == 'in']
+
+# --- APP HEADER ---
+st.title("🏈 College Football Live Command Center")
+st.caption(f"Showing **{selected_conf}** | {len(parsed)} games tracked")
+
+# --- OPTIMAL 4-SCREEN SPLIT SCREEN SECTION ---
+st.header("📺 Optimal Quad-Box Matrix (Top 4 Screens)")
+st.caption("The 4 most exciting live games in this viewing window and what channels to tune into:")
+
+if len(live_games) == 0:
+    st.info("No games are currently live in this window. Upcoming games will appear below.")
 else:
-    processed_games = []
-    for event in events:
-        comp = event['competitions'][0]
-        home = comp['competitors'][0]
-        away = comp['competitors'][1]
-        
-        home_rank = f"#{home.get('curatedRank', {}).get('current')} " if home.get('curatedRank', {}).get('current', 99) <= 25 else ""
-        away_rank = f"#{away.get('curatedRank', {}).get('current')} " if away.get('curatedRank', {}).get('current', 99) <= 25 else ""
-        
-        home_str = f"{home_rank}{home['team']['shortDisplayName']}"
-        away_str = f"{away_rank}{away['team']['shortDisplayName']}"
-        
-        broadcasts = comp.get('broadcasts', [{}])
-        tv_name = broadcasts[0].get('names', ['N/A'])[0] if broadcasts else 'N/A'
-        
-        excitement, clock_status, note = calculate_excitement(event)
-        
-        processed_games.append({
-            "away": away_str,
-            "away_score": away.get('score', '0'),
-            "home": home_str,
-            "home_score": home.get('score', '0'),
-            "score": excitement,
-            "clock": clock_status,
-            "tv": tv_name,
-            "note": note
-        })
+    quad_games = live_games[:4]
+    
+    # 2x2 Grid for Split Screen
+    row1_col1, row1_col2 = st.columns(2)
+    row2_col1, row2_col2 = st.columns(2)
+    grid_cols = [row1_col1, row1_col2, row2_col1, row2_col2]
+    
+    for idx, g in enumerate(quad_games):
+        with grid_cols[idx]:
+            with st.container(border=True):
+                st.markdown(f"#### 🖥️ Screen {idx+1}: **{g['tv']}**")
+                st.markdown(f"**{g['away_str']} {g['away_score']}** @ **{g['home_str']} {g['home_score']}**")
+                st.write(f"⏱️ `{g['status_detail']}` | ⚡ **Index: {g['score']}/100**")
+                if g['note']:
+                    st.caption(f"*{g['note']}*")
 
-    # Sort: highest excitement first
-    processed_games.sort(key=lambda x: x['score'], reverse=True)
+st.divider()
 
-    for g in processed_games:
-        # Visual color tag based on excitement score
-        if g['score'] >= 65:
-            badge = "🔥 **MUST WATCH**"
-        elif g['score'] >= 40:
-            badge = "👀 **WATCHABLE**"
-        elif g['clock'] == "Upcoming":
-            badge = "⏳ **UPCOMING**"
-        elif g['clock'] == "Final":
+# --- FULL SCOREBOARD ---
+st.header("📋 All Tracked Games")
+
+if not parsed:
+    st.warning("No games match the selected filters.")
+else:
+    for g in parsed:
+        if g['state'] == 'in':
+            badge = "🔴 **ON TV NOW**"
+            border_color = True
+        elif g['state'] == 'post':
             badge = "🏁 **FINAL**"
+            border_color = False
         else:
-            badge = "💤 **LOW DRAMA**"
+            badge = "⏳ **UPCOMING**"
+            border_color = False
 
-        with st.container(border=True):
-            col1, col2, col3 = st.columns([3, 1, 1])
-            with col1:
-                st.subheader(f"{g['away']} {g['away_score']}  @  {g['home']} {g['home_score']}")
-                st.caption(f"Status: **{g['clock']}** | Channel: **{g['tv']}**")
-                if g['note'] not in ["Upcoming", "Game finished", "Normal play"]:
-                    st.write(f"⚡ *{g['note']}*")
-            with col2:
-                st.metric("Excitement Index", f"{g['score']}/100")
-            with col3:
+        with st.container(border=border_color):
+            c1, c2, c3 = st.columns([3, 1, 1])
+            with c1:
+                st.subheader(f"{g['away_str']} {g['away_score']} @ {g['home_str']} {g['home_score']}")
+                st.write(f"📺 Channel: **{g['tv']}** | Status: **{g['status_detail']}**")
+                if g['note']:
+                    st.caption(f"⚡ {g['note']}")
+            with c2:
+                st.metric("Excitement", f"{g['score']}/100")
+            with c3:
                 st.write(badge)
