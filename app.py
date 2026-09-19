@@ -4,7 +4,80 @@ import time
 
 st.set_page_config(page_title="College Football Heat Map", page_icon="🏈", layout="wide")
 
-# High-density mobile scanning styles
+# Embedded High-Quality Flame & Football SVG Logo
+LOGO_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width: 58px; height: 58px; margin-right: 14px; border-radius: 12px; vertical-align: middle; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
+  <defs>
+    <linearGradient id="skyBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0b0a10"/>
+      <stop offset="50%" stop-color="#180c10"/>
+      <stop offset="100%" stop-color="#2a0808"/>
+    </linearGradient>
+    <linearGradient id="redFlame" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#b71c1c"/>
+      <stop offset="60%" stop-color="#e64a19"/>
+      <stop offset="100%" stop-color="#ff7043"/>
+    </linearGradient>
+    <linearGradient id="orangeFlame" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#e65100"/>
+      <stop offset="60%" stop-color="#ff9800"/>
+      <stop offset="100%" stop-color="#ffb74d"/>
+    </linearGradient>
+    <linearGradient id="yellowFlame" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#ffb300"/>
+      <stop offset="70%" stop-color="#ffee58"/>
+      <stop offset="100%" stop-color="#fffde7"/>
+    </linearGradient>
+    <linearGradient id="leather" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#93461e"/>
+      <stop offset="100%" stop-color="#4e210a"/>
+    </linearGradient>
+    <clipPath id="ballClip">
+      <path d="M 110 256 C 185 130, 327 130, 402 256 C 327 382, 185 382, 110 256 Z"/>
+    </clipPath>
+  </defs>
+
+  <rect width="512" height="512" rx="110" fill="url(#skyBg)"/>
+
+  <!-- Red Outer Flames -->
+  <path d="M 0 512 L 0 320 C 20 280, 35 210, 45 130 C 55 220, 75 250, 95 190 C 115 130, 130 70, 145 20 C 160 90, 185 180, 205 130 C 225 80, 240 30, 256 0 C 272 30, 287 80, 307 130 C 327 180, 352 90, 367 20 C 382 70, 397 130, 417 190 C 437 250, 457 220, 467 130 C 477 210, 492 280, 512 320 L 512 512 Z" fill="url(#redFlame)"/>
+
+  <!-- Orange Mid Flames -->
+  <path d="M 0 512 L 0 370 C 30 330, 50 260, 65 180 C 80 250, 105 260, 125 210 C 145 150, 160 100, 185 60 C 200 130, 225 180, 240 120 C 250 80, 256 50, 256 50 C 256 50, 262 80, 272 120 C 287 180, 312 130, 327 60 C 352 100, 367 150, 387 210 C 407 260, 432 250, 447 180 C 462 260, 482 330, 512 370 L 512 512 Z" fill="url(#orangeFlame)"/>
+
+  <!-- Yellow Core Flames -->
+  <path d="M 0 512 L 0 420 C 40 380, 80 300, 105 230 C 125 300, 150 280, 175 200 C 195 140, 215 130, 230 100 C 245 150, 256 160, 256 160 C 256 160, 267 150, 282 100 C 297 130, 317 140, 337 200 C 362 280, 387 300, 407 230 C 432 300, 472 380, 512 420 L 512 512 Z" fill="url(#yellowFlame)"/>
+
+  <!-- Sparks -->
+  <circle cx="85" cy="80" r="4.5" fill="#fff59d"/>
+  <circle cx="195" cy="35" r="3.5" fill="#ffe082"/>
+  <circle cx="320" cy="30" r="4" fill="#fff59d"/>
+  <circle cx="430" cy="75" r="3.5" fill="#ffe082"/>
+
+  <!-- Sideways Football & Drop Shadow -->
+  <path d="M 110 264 C 185 138, 327 138, 402 264 C 327 390, 185 390, 110 264 Z" fill="#000000" opacity="0.6"/>
+  <path d="M 110 256 C 185 130, 327 130, 402 256 C 327 382, 185 382, 110 256 Z" fill="url(#leather)" stroke="#1a0803" stroke-width="3"/>
+
+  <!-- White Stripes -->
+  <g clip-path="url(#ballClip)">
+    <ellipse cx="145" cy="256" rx="14" ry="68" fill="none" stroke="#ffffff" stroke-width="15" opacity="0.95"/>
+    <ellipse cx="367" cy="256" rx="14" ry="68" fill="none" stroke="#ffffff" stroke-width="15" opacity="0.95"/>
+  </g>
+
+  <!-- Laces -->
+  <line x1="115" y1="256" x2="397" y2="256" stroke="#1f0902" stroke-width="2.5"/>
+  <g stroke="#ffffff" stroke-linecap="round">
+    <line x1="205" y1="256" x2="307" y2="256" stroke-width="6.5"/>
+    <line x1="217" y1="240" x2="217" y2="272" stroke-width="4.5"/>
+    <line x1="235" y1="240" x2="235" y2="272" stroke-width="4.5"/>
+    <line x1="256" y1="240" x2="256" y2="272" stroke-width="4.5"/>
+    <line x1="277" y1="240" x2="277" y2="272" stroke-width="4.5"/>
+    <line x1="295" y1="240" x2="295" y2="272" stroke-width="4.5"/>
+  </g>
+</svg>
+"""
+
+# High-density mobile styles
 st.markdown("""
 <style>
     .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
@@ -24,6 +97,7 @@ st.markdown("""
     .badge-routine { color: #a0aec0; font-weight: 600; font-size: 0.82rem; }
     .meta-line { font-size: 0.82rem; color: #a0aec0; margin-top: 2px; }
     .context-line { font-size: 0.84rem; color: #f6e05e; font-weight: 500; margin-top: 2px; }
+    .header-box { display: flex; align-items: center; margin-bottom: 0.75rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -75,7 +149,7 @@ RIVALRIES = {
 
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
-    st.title("🏈 Heat Map Controls")
+    st.title("🏈 Controls")
     selected_conf = st.selectbox("Conference", list(CONFERENCE_MAP.keys()))
     status_filter = st.radio("Status", ["All", "Live Only", "Finals Only"])
     top25_only = st.checkbox("Ranked Teams Only (Top 25)", value=False)
@@ -86,10 +160,9 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-# --- HIGH-SPEED FETCH ENGINE ---
+# --- HIGH-SPEED API FETCH ---
 @st.cache_data(ttl=8)
 def fetch_games(group_id):
-    # Cache buster & no-cache headers to bypass ESPN edge proxies
     timestamp = int(time.time())
     url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=100&_ts={timestamp}"
     headers = {
@@ -127,7 +200,7 @@ def parse_game(game):
     broadcasts = comp.get('broadcasts', [{}])
     tv_name = broadcasts[0].get('names', ['TV N/A'])[0] if broadcasts else 'TV N/A'
     
-    # Point Spread & Betting Line
+    # Odds / Point Spread
     odds_list = comp.get('odds', [])
     line_display = "Line: N/A"
     if odds_list:
@@ -148,13 +221,13 @@ def parse_game(game):
     leader = home_name if home_score > away_score else away_name if away_score > home_score else None
     trailer = away_name if home_score > away_score else home_name if away_score > home_score else None
 
-    # Check for historic rivalry
+    # Rivalry check
     pair = frozenset([home_name, away_name])
     rivalry_title = RIVALRIES.get(pair, None)
     if rivalry_title:
         context_notes.append(f"🏆 **{rivalry_title}**")
         
-    # Drive Count
+    # Drive calculation
     current_drive_num = 0
     if situation:
         current_drive_num = situation.get('currentDrive', {}).get('driveNumber', 0)
@@ -163,7 +236,7 @@ def parse_game(game):
 
     past_early_game = (period >= 2) or (current_drive_num >= 6)
 
-    # Situational context
+    # In-game situational context
     if state == 'in':
         possession_id = situation.get('possession')
         is_redzone = situation.get('isRedZone', False)
@@ -225,7 +298,7 @@ def parse_game(game):
 
     total_index = min(100, score)
 
-    # --- HEAT LABELS ---
+    # Label Tiers
     if total_index >= 75:
         heat_tier = "urgent"
         label = "🚨 CHANGE THE CHANNEL NOW"
@@ -256,7 +329,7 @@ def parse_game(game):
         "context": " | ".join(context_notes)
     }
 
-# --- RUN & RENDER ---
+# --- RUN AND RENDER ---
 events = fetch_games(CONFERENCE_MAP[selected_conf])
 parsed = [parse_game(e) for e in events]
 
@@ -270,8 +343,16 @@ elif status_filter == "Finals Only":
 
 parsed.sort(key=lambda x: (x['state'] == 'in', x['index']), reverse=True)
 
-st.title("🏈 College Football Heat Map")
-st.caption(f"Tracking **{selected_conf}** • `{len(parsed)} games tracked`")
+# Custom Header with Embedded Logo
+st.markdown(f"""
+<div class="header-box">
+    {LOGO_SVG}
+    <div>
+        <h2 style="margin: 0; padding: 0; font-size: 1.8rem; font-weight: 800;">College Football Heat Map</h2>
+        <div style="font-size: 0.85rem; color: #a0aec0;">Tracking <strong>{selected_conf}</strong> &nbsp;•&nbsp; {len(parsed)} games</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 if not parsed:
     st.info("No games match your selected filters.")
@@ -295,7 +376,7 @@ else:
         """
         st.markdown(html, unsafe_allow_html=True)
 
-# --- AUTO-REFRESH TRIGGER (15s) ---
+# 15-second background auto-refresh
 if auto_refresh:
     time.sleep(15)
     st.rerun()
