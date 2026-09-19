@@ -1,9 +1,10 @@
 import streamlit as st
 import requests
+import time
 
 st.set_page_config(page_title="College Football Heat Map", page_icon="🏈", layout="wide")
 
-# Styling: high-density mobile scanning
+# High-density mobile scanning styles
 st.markdown("""
 <style>
     .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
@@ -40,7 +41,6 @@ CONFERENCE_MAP = {
     "MAC": 15
 }
 
-# Major historic rivalries lookup
 RIVALRIES = {
     frozenset(["Michigan", "Ohio State"]): "The Game",
     frozenset(["Alabama", "Auburn"]): "Iron Bowl",
@@ -81,15 +81,25 @@ with st.sidebar:
     top25_only = st.checkbox("Ranked Teams Only (Top 25)", value=False)
     
     st.divider()
-    if st.button("🔄 Refresh Now"):
+    auto_refresh = st.checkbox("⚡ Auto-refresh (every 15s)", value=True)
+    if st.button("🔄 Force Refresh Now"):
+        st.cache_data.clear()
         st.rerun()
 
-# --- FETCH DATA ---
-@st.cache_data(ttl=25)
+# --- HIGH-SPEED FETCH ENGINE ---
+@st.cache_data(ttl=8)
 def fetch_games(group_id):
-    url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=100"
+    # Cache buster & no-cache headers to bypass ESPN edge proxies
+    timestamp = int(time.time())
+    url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=100&_ts={timestamp}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
     try:
-        res = requests.get(url, timeout=10)
+        res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
             return res.json().get('events', [])
     except Exception:
@@ -114,7 +124,6 @@ def parse_game(game):
     home_rank = home.get('curatedRank', {}).get('current', 99)
     away_rank = away.get('curatedRank', {}).get('current', 99)
     
-    # Broadcast / TV channel
     broadcasts = comp.get('broadcasts', [{}])
     tv_name = broadcasts[0].get('names', ['TV N/A'])[0] if broadcasts else 'TV N/A'
     
@@ -123,7 +132,7 @@ def parse_game(game):
     line_display = "Line: N/A"
     if odds_list:
         odds = odds_list[0]
-        details = odds.get('details') # e.g. "ALA -7.5"
+        details = odds.get('details')
         over_under = odds.get('overUnder')
         if details:
             line_display = f"Line: {details}"
@@ -145,21 +154,16 @@ def parse_game(game):
     if rivalry_title:
         context_notes.append(f"🏆 **{rivalry_title}**")
         
-    # Drive Count Estimation for Live Games
-    # situation.get('lastPlay') or scoring drives count
+    # Drive Count
     current_drive_num = 0
     if situation:
         current_drive_num = situation.get('currentDrive', {}).get('driveNumber', 0)
         if not current_drive_num:
-            # Fallback estimation based on plays/scores
             current_drive_num = situation.get('lastPlay', {}).get('drive', {}).get('driveNumber', 0)
 
-    # Both teams had 3 drives condition:
-    # If period > 1, 1st quarter is complete.
-    # If period == 1, check if total drives in the game >= 6 (at least 3 per team).
     past_early_game = (period >= 2) or (current_drive_num >= 6)
 
-    # Situational context for live games
+    # Situational context
     if state == 'in':
         possession_id = situation.get('possession')
         is_redzone = situation.get('isRedZone', False)
@@ -186,33 +190,29 @@ def parse_game(game):
         elif diff <= 8:
             context_notes.append(f"🏁 One-possession finish ({leader} by {diff})")
 
-    # --- HEAT MAP INDEX CALCULATION (0 - 100) ---
+    # --- HEAT MAP INDEX ---
     score = 0
     
-    # 1. Team Rankings & Postseason / Championship Stakes
     if home_rank <= 25 and away_rank <= 25:
-        score += 18  # Top 25 matchup
+        score += 18
         if home_rank <= 10 and away_rank <= 10:
-            score += 10 # Elite top-10 showdown
+            score += 10
     elif home_rank <= 25 or away_rank <= 25:
-        score += 8   # At least one ranked team
+        score += 8
         
-    # 2. Rivalry Boost
     if rivalry_title:
         score += 15
 
-    # 3. Live Drama & Closeness Leverage
     if state == 'in':
         if diff == 0: score += 35
         elif diff <= 3: score += 30
         elif diff <= 8: score += 20
         elif diff <= 14: score += 10
         
-        if period > 4: score += 40      # Overtime
-        elif period == 4: score += 25   # 4th quarter
-        elif period == 3: score += 12   # 2nd half
+        if period > 4: score += 40
+        elif period == 4: score += 25
+        elif period == 3: score += 12
         
-        # Upset in progress against ranked team (ONLY after Q1 or 3 drives per team)
         is_potential_upset = (home_rank <= 25 and away_rank > 25 and away_score >= home_score) or \
                              (away_rank <= 25 and home_rank > 25 and home_score >= away_score)
         
@@ -225,7 +225,7 @@ def parse_game(game):
 
     total_index = min(100, score)
 
-    # --- HEAT MAP LABEL TIERS ---
+    # --- HEAT LABELS ---
     if total_index >= 75:
         heat_tier = "urgent"
         label = "🚨 CHANGE THE CHANNEL NOW"
@@ -294,3 +294,9 @@ else:
         </div>
         """
         st.markdown(html, unsafe_allow_html=True)
+
+# --- AUTO-REFRESH TRIGGER (15s) ---
+if auto_refresh:
+    time.sleep(15)
+    st.rerun()
+        
