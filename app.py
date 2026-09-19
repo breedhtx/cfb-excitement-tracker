@@ -1,13 +1,10 @@
 import streamlit as st
 import requests
-from datetime import datetime, timezone
-import zoneinfo
 
 st.set_page_config(page_title="College Football Heat Map", page_icon="🏈", layout="wide")
 
-# Embedded High-Quality Flame & Football SVG Logo
-LOGO_SVG = """
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width: 52px; height: 52px; margin-right: 12px; border-radius: 12px; vertical-align: middle; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
+# Embedded Hot-Rod Flame & Sideways Football SVG Logo
+LOGO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
     <linearGradient id="skyBg" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#0b0a10"/>
@@ -65,9 +62,9 @@ LOGO_SVG = """
     <line x1="277" y1="240" x2="277" y2="272" stroke-width="4.5"/>
     <line x1="295" y1="240" x2="295" y2="272" stroke-width="4.5"/>
   </g>
-</svg>
-"""
+</svg>"""
 
+# Styling: high-density mobile scanning
 st.markdown("""
 <style>
     .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
@@ -82,28 +79,29 @@ st.markdown("""
     .heat-monitor { border-left-color: #ffaa00 !important; }
     .heat-routine { border-left-color: #4a5568 !important; }
     .team-line { font-size: 1.02rem; font-weight: 700; }
-    .badge-urgent { color: #ff4d4d; font-weight: 800; font-size: 0.85rem; }
+    .badge-urgent { color: #ff4d4d; font-weight: 800; font-size: 0.85rem; letter-spacing: 0.5px; }
     .badge-monitor { color: #ffbb33; font-weight: 700; font-size: 0.85rem; }
     .badge-routine { color: #a0aec0; font-weight: 600; font-size: 0.82rem; }
     .meta-line { font-size: 0.82rem; color: #a0aec0; margin-top: 2px; }
     .context-line { font-size: 0.84rem; color: #f6e05e; font-weight: 500; margin-top: 2px; }
-    .header-box { display: flex; align-items: center; margin-bottom: 0.75rem; }
 </style>
 """, unsafe_allow_html=True)
 
 CONFERENCE_MAP = {
-    "All FBS": "80",
-    "SEC": "8",
-    "Big Ten": "4",
-    "Big 12": "9",
-    "ACC": "1",
-    "American (AAC)": "151",
-    "Mountain West": "17",
-    "Sun Belt": "37",
-    "Conference USA": "12",
-    "MAC": "15"
+    "All FBS": 80,
+    "SEC": 8,
+    "Big Ten": 4,
+    "Big 12": 9,
+    "ACC": 1,
+    "Pac-12": 15,
+    "American (AAC)": 151,
+    "Mountain West": 17,
+    "Sun Belt": 37,
+    "Conference USA": 12,
+    "MAC": 15
 }
 
+# Major historic rivalries lookup
 RIVALRIES = {
     frozenset(["Michigan", "Ohio State"]): "The Game",
     frozenset(["Alabama", "Auburn"]): "Iron Bowl",
@@ -138,102 +136,51 @@ RIVALRIES = {
 
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
-    st.title("🏈 Controls")
+    st.title("🏈 Heat Map Controls")
     selected_conf = st.selectbox("Conference", list(CONFERENCE_MAP.keys()))
     status_filter = st.radio("Status", ["All", "Live Only", "Finals Only"])
     top25_only = st.checkbox("Ranked Teams Only (Top 25)", value=False)
     
     st.divider()
-    if st.button("🔄 Force Refresh"):
+    if st.button("🔄 Refresh Now"):
         st.cache_data.clear()
         st.rerun()
 
-# --- HIGH-RELIABILITY API FETCH ENGINE ---
-@st.cache_data(ttl=10)
+# --- FETCH DATA ---
+@st.cache_data(ttl=25)
 def fetch_games(group_id):
-    # Determine today's date in US Eastern Time (standard for college football scheduling)
+    url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=100"
     try:
-        tz = zoneinfo.ZoneInfo("America/New_York")
-        today_str = datetime.now(tz).strftime("%Y%m%d")
-    except Exception:
-        today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "application/json"
-    }
-
-    # Attempt 1: Fetch with group ID and today's date
-    url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates={today_str}&groups={group_id}&limit=200"
-    try:
-        res = requests.get(url, headers=headers, timeout=6)
-        if res.status_code == 200:
-            events = res.json().get('events', [])
-            if events:
-                return events
-    except Exception:
-        pass
-
-    # Attempt 2: Fallback without dates query (ESPN defaults to current active week)
-    fallback_url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=200"
-    try:
-        res = requests.get(fallback_url, headers=headers, timeout=6)
-        if res.status_code == 200:
-            events = res.json().get('events', [])
-            if events:
-                return events
-    except Exception:
-        pass
-
-    # Attempt 3: General FBS scoreboard if specific conference group fails
-    general_url = "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?limit=200"
-    try:
-        res = requests.get(general_url, headers=headers, timeout=6)
+        res = requests.get(url, timeout=10)
         if res.status_code == 200:
             return res.json().get('events', [])
     except Exception:
         pass
-
     return []
 
 def parse_game(game):
-    competitions = game.get('competitions', [])
-    if not competitions:
-        return None
-    comp = competitions[0]
-    
-    status = comp.get('status', {})
-    status_type = status.get('type', {})
-    state = status_type.get('state', 'pre')
-    detail = status_type.get('shortDetail') or status_type.get('detail', 'Scheduled')
+    comp = game['competitions'][0]
+    status = comp['status']
+    state = status['type']['state']
+    detail = status['type'].get('detail', '')
     period = status.get('period', 1)
     
-    competitors = comp.get('competitors', [])
-    if len(competitors) < 2:
-        return None
-        
-    home = competitors[0]
-    away = competitors[1]
+    home = comp['competitors'][0]
+    away = comp['competitors'][1]
     
-    home_name = home.get('team', {}).get('shortDisplayName') or home.get('team', {}).get('name', 'Home')
-    away_name = away.get('team', {}).get('shortDisplayName') or away.get('team', {}).get('name', 'Away')
-    
-    try:
-        home_score = int(home.get('score', 0))
-    except (ValueError, TypeError):
-        home_score = 0
-        
-    try:
-        away_score = int(away.get('score', 0))
-    except (ValueError, TypeError):
-        away_score = 0
+    home_name = home['team']['shortDisplayName']
+    away_name = away['team']['shortDisplayName']
+    home_score = int(home.get('score', 0))
+    away_score = int(away.get('score', 0))
     
     home_rank = home.get('curatedRank', {}).get('current', 99)
     away_rank = away.get('curatedRank', {}).get('current', 99)
     
-    broadcasts = comp.get('broadcasts', [])
-    tv_name = broadcasts[0].get('names', ['TV N/A'])[0] if broadcasts and broadcasts[0].get('names') else 'TV N/A'
+    # Broadcast / TV channel
+    broadcasts = comp.get('broadcasts', [{}])
+    tv_name = broadcasts[0].get('names', ['TV N/A'])[0] if broadcasts else 'TV N/A'
     
+    # Point Spread & Betting Line
     odds_list = comp.get('odds', [])
     line_display = "Line: N/A"
     if odds_list:
@@ -252,12 +199,15 @@ def parse_game(game):
     
     diff = abs(home_score - away_score)
     leader = home_name if home_score > away_score else away_name if away_score > home_score else None
+    trailer = away_name if home_score > away_score else home_name if away_score > home_score else None
 
+    # Check for historic rivalry
     pair = frozenset([home_name, away_name])
     rivalry_title = RIVALRIES.get(pair, None)
     if rivalry_title:
         context_notes.append(f"🏆 **{rivalry_title}**")
         
+    # Drive Count Estimation
     current_drive_num = 0
     if situation:
         current_drive_num = situation.get('currentDrive', {}).get('driveNumber', 0)
@@ -266,6 +216,7 @@ def parse_game(game):
 
     past_early_game = (period >= 2) or (current_drive_num >= 6)
 
+    # Situational context for live games
     if state == 'in':
         possession_id = situation.get('possession')
         is_redzone = situation.get('isRedZone', False)
@@ -276,10 +227,12 @@ def parse_game(game):
 
         if is_redzone:
             context_notes.append(f"🔴 **{poss_team} in RED ZONE** ({down_dist})")
+        elif poss_team and trailer and poss_team == trailer and diff <= 8 and period >= 3:
+            context_notes.append(f"⚡ **{trailer} driving to tie/take lead** ({down_dist})")
         elif down_dist:
             context_notes.append(f"🏈 {poss_team} ball: {down_dist}")
 
-        if last_play and any(k in last_play for k in ["TOUCHDOWN", "INTERCEPTED", "FUMBLE", "field goal"]):
+        if last_play and ("TOUCHDOWN" in last_play or "INTERCEPTED" in last_play or "FUMBLE" in last_play or "field goal" in last_play.lower()):
             context_notes.append(f"⚠️ *Play: {last_play}*")
 
     elif state == 'post':
@@ -290,28 +243,33 @@ def parse_game(game):
         elif diff <= 8:
             context_notes.append(f"🏁 One-possession finish ({leader} by {diff})")
 
-    # --- HEAT MAP INDEX ---
+    # --- HEAT MAP INDEX CALCULATION (0 - 100) ---
     score = 0
+    
+    # 1. Team Rankings & Postseason / Championship Stakes
     if home_rank <= 25 and away_rank <= 25:
-        score += 18
+        score += 18  # Top 25 matchup
         if home_rank <= 10 and away_rank <= 10:
-            score += 10
+            score += 10 # Elite top-10 showdown
     elif home_rank <= 25 or away_rank <= 25:
-        score += 8
+        score += 8   # At least one ranked team
         
+    # 2. Rivalry Boost
     if rivalry_title:
         score += 15
 
+    # 3. Live Drama & Closeness Leverage
     if state == 'in':
         if diff == 0: score += 35
         elif diff <= 3: score += 30
         elif diff <= 8: score += 20
         elif diff <= 14: score += 10
         
-        if period > 4: score += 40
-        elif period == 4: score += 25
-        elif period == 3: score += 12
+        if period > 4: score += 40      # Overtime
+        elif period == 4: score += 25   # 4th quarter
+        elif period == 3: score += 12   # 2nd half
         
+        # Upset in progress (only after Q1 or 3 drives)
         is_potential_upset = (home_rank <= 25 and away_rank > 25 and away_score >= home_score) or \
                              (away_rank <= 25 and home_rank > 25 and home_score >= away_score)
         
@@ -324,6 +282,7 @@ def parse_game(game):
 
     total_index = min(100, score)
 
+    # --- HEAT MAP LABEL TIERS ---
     if total_index >= 75:
         heat_tier = "urgent"
         label = "🚨 CHANGE THE CHANNEL NOW"
@@ -354,11 +313,9 @@ def parse_game(game):
         "context": " | ".join(context_notes)
     }
 
-# --- RUN AND RENDER ---
-group_target = CONFERENCE_MAP.get(selected_conf, "80")
-events = fetch_games(group_target)
-parsed = [parse_game(e) for e in events if e]
-parsed = [g for g in parsed if g is not None]
+# --- RUN & RENDER ---
+events = fetch_games(CONFERENCE_MAP[selected_conf])
+parsed = [parse_game(e) for e in events]
 
 if top25_only:
     parsed = [g for g in parsed if g['home_rank'] <= 25 or g['away_rank'] <= 25]
@@ -370,16 +327,18 @@ elif status_filter == "Finals Only":
 
 parsed.sort(key=lambda x: (x['state'] == 'in', x['index']), reverse=True)
 
-# Custom Header with Embedded Logo
-st.markdown(f"""
-<div class="header-box">
-    {LOGO_SVG}
-    <div>
-        <h2 style="margin: 0; padding: 0; font-size: 1.75rem; font-weight: 800;">College Football Heat Map</h2>
-        <div style="font-size: 0.85rem; color: #a0aec0;">Tracking <strong>{selected_conf}</strong> &nbsp;•&nbsp; {len(parsed)} games</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+# App Header with Custom Flame Logo
+header_col1, header_col2 = st.columns([0.15, 0.85])
+with header_col1:
+    st.image(LOGO_SVG, width=54)
+with header_col2:
+    st.markdown(
+        f"<h2 style='margin:0; padding:0; font-size:1.75rem; font-weight:800;'>College Football Heat Map</h2>"
+        f"<div style='font-size:0.85rem; color:#a0aec0;'>Tracking <strong>{selected_conf}</strong> • {len(parsed)} games tracked</div>",
+        unsafe_allow_html=True
+    )
+
+st.write("")
 
 if not parsed:
     st.info("No games match your selected filters.")
