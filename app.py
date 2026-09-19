@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
-import time
+from datetime import datetime, timezone
+import zoneinfo
 
 st.set_page_config(page_title="College Football Heat Map", page_icon="🏈", layout="wide")
 
@@ -91,17 +92,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 CONFERENCE_MAP = {
-    "All FBS": None,
-    "SEC": 8,
-    "Big Ten": 4,
-    "Big 12": 9,
-    "ACC": 1,
-    "Pac-12": 15,
-    "American (AAC)": 151,
-    "Mountain West": 17,
-    "Sun Belt": 37,
-    "Conference USA": 12,
-    "MAC": 15
+    "All FBS": "80",
+    "SEC": "8",
+    "Big Ten": "4",
+    "Big 12": "9",
+    "ACC": "1",
+    "American (AAC)": "151",
+    "Mountain West": "17",
+    "Sun Belt": "37",
+    "Conference USA": "12",
+    "MAC": "15"
 }
 
 RIVALRIES = {
@@ -148,22 +148,52 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-# --- HIGH-SPEED API FETCH ---
+# --- HIGH-RELIABILITY API FETCH ENGINE ---
 @st.cache_data(ttl=10)
 def fetch_games(group_id):
-    timestamp = int(time.time())
-    if group_id:
-        url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=100&_ts={timestamp}"
-    else:
-        url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?limit=100&_ts={timestamp}"
-    
-    headers = {"User-Agent": "Mozilla/5.0"}
+    # Determine today's date in US Eastern Time (standard for college football scheduling)
+    try:
+        tz = zoneinfo.ZoneInfo("America/New_York")
+        today_str = datetime.now(tz).strftime("%Y%m%d")
+    except Exception:
+        today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/json"
+    }
+
+    # Attempt 1: Fetch with group ID and today's date
+    url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates={today_str}&groups={group_id}&limit=200"
     try:
         res = requests.get(url, headers=headers, timeout=6)
+        if res.status_code == 200:
+            events = res.json().get('events', [])
+            if events:
+                return events
+    except Exception:
+        pass
+
+    # Attempt 2: Fallback without dates query (ESPN defaults to current active week)
+    fallback_url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=200"
+    try:
+        res = requests.get(fallback_url, headers=headers, timeout=6)
+        if res.status_code == 200:
+            events = res.json().get('events', [])
+            if events:
+                return events
+    except Exception:
+        pass
+
+    # Attempt 3: General FBS scoreboard if specific conference group fails
+    general_url = "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?limit=200"
+    try:
+        res = requests.get(general_url, headers=headers, timeout=6)
         if res.status_code == 200:
             return res.json().get('events', [])
     except Exception:
         pass
+
     return []
 
 def parse_game(game):
@@ -325,7 +355,8 @@ def parse_game(game):
     }
 
 # --- RUN AND RENDER ---
-events = fetch_games(CONFERENCE_MAP[selected_conf])
+group_target = CONFERENCE_MAP.get(selected_conf, "80")
+events = fetch_games(group_target)
 parsed = [parse_game(e) for e in events if e]
 parsed = [g for g in parsed if g is not None]
 
