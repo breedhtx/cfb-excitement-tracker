@@ -1,9 +1,28 @@
 import streamlit as st
 import requests
 
-st.set_page_config(page_title="CFB Radar & Social Pulse", page_icon="🏈", layout="wide")
+st.set_page_config(page_title="CFB Scoreboard", page_icon="🏈", layout="wide")
 
-# Conference mappings for ESPN
+# Custom CSS to shrink text and make rows compact for phone scanning
+st.markdown("""
+<style>
+    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+    .game-row {
+        background-color: #1a1c24;
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-bottom: 8px;
+        border-left: 5px solid #444;
+    }
+    .game-live { border-left-color: #ff4b4b !important; }
+    .game-final { border-left-color: #666 !important; }
+    .game-upcoming { border-left-color: #2b5c8f !important; }
+    .team-line { font-size: 1.05rem; font-weight: 700; }
+    .meta-line { font-size: 0.82rem; color: #aaa; margin-top: 2px; }
+    .context-line { font-size: 0.85rem; color: #ffca28; font-weight: 500; margin-top: 3px; }
+</style>
+""", unsafe_allow_html=True)
+
 CONFERENCE_MAP = {
     "All FBS": 80,
     "SEC": 8,
@@ -20,84 +39,23 @@ CONFERENCE_MAP = {
 
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
-    st.title("🏈 Radar Controls")
-    selected_conf = st.selectbox("Filter by Conference", list(CONFERENCE_MAP.keys()))
-    status_filter = st.radio("Game Status", ["All Games", "Live Only (On TV)", "Final Only (Completed)"])
-    top25_only = st.checkbox("Ranked Teams Only (Top 25)", value=False)
+    st.title("🏈 Filters")
+    selected_conf = st.selectbox("Conference", list(CONFERENCE_MAP.keys()))
+    status_filter = st.radio("Status", ["All", "Live Only", "Finals Only"])
+    top25_only = st.checkbox("Ranked Teams (Top 25)", value=False)
     
     st.divider()
-    if st.button("🔄 Refresh Data Now"):
+    if st.button("🔄 Refresh"):
         st.rerun()
-    st.caption("Auto-refreshes when filters change. Completed games include final-minute recaps and Bluesky fan reactions.")
 
-# --- API DATA FETCHERS ---
-@st.cache_data(ttl=30)
+# --- FETCH DATA ---
+@st.cache_data(ttl=25)
 def fetch_games(group_id):
-    """Fetches live college football games from ESPN."""
     url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=100"
     try:
         res = requests.get(url, timeout=10)
         if res.status_code == 200:
             return res.json().get('events', [])
-    except Exception as e:
-        st.error(f"Error fetching live scoreboard: {e}")
-    return []
-
-@st.cache_data(ttl=300)
-def fetch_game_recap(game_id):
-    """Fetches written editorial recaps and key 4th quarter scoring drives from ESPN."""
-    url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/summary?event={game_id}"
-    try:
-        res = requests.get(url, timeout=8)
-        if res.status_code == 200:
-            data = res.json()
-            
-            headline = ""
-            story = ""
-            article = data.get('article', {})
-            if article:
-                headline = article.get('headline', '')
-                story = article.get('description', '')
-
-            scoring_plays = data.get('scoringPlays', [])
-            clutch_plays = []
-            for play in scoring_plays:
-                period = play.get('period', {}).get('number', 0)
-                if period >= 4:
-                    clock = play.get('clock', {}).get('displayValue', '')
-                    text = play.get('text', '')
-                    away_score = play.get('awayScore', 0)
-                    home_score = play.get('homeScore', 0)
-                    clutch_plays.append(f"**Q{period} ({clock})**: {text} *(Score: {away_score}-{home_score})*")
-
-            return {
-                "headline": headline,
-                "story": story,
-                "clutch_plays": clutch_plays[-3:]
-            }
-    except Exception:
-        pass
-    return None
-
-@st.cache_data(ttl=45)
-def get_bluesky_buzz(team1_name, team2_name, limit=4):
-    """Searches Bluesky for public posts mentioning both teams. Requires no login."""
-    query = f"{team1_name} {team2_name}"
-    url = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
-    params = {
-        "q": query,
-        "limit": limit
-    }
-    try:
-        res = requests.get(url, params=params, timeout=5)
-        if res.status_code == 200:
-            posts = res.json().get('posts', [])
-            extracted = []
-            for p in posts:
-                author = p.get('author', {}).get('displayName') or p.get('author', {}).get('handle', 'User')
-                text = p.get('record', {}).get('text', '')
-                extracted.append({"author": author, "text": text})
-            return extracted
     except Exception:
         pass
     return []
@@ -106,181 +64,131 @@ def parse_game(game):
     comp = game['competitions'][0]
     status = comp['status']
     state = status['type']['state']
-    
-    period = status.get('period', 1)
     detail = status['type'].get('detail', '')
+    period = status.get('period', 1)
     
-    competitors = comp['competitors']
-    home = competitors[0]
-    away = competitors[1]
+    home = comp['competitors'][0]
+    away = comp['competitors'][1]
     
     home_name = home['team']['shortDisplayName']
     away_name = away['team']['shortDisplayName']
     home_score = int(home.get('score', 0))
     away_score = int(away.get('score', 0))
-    
     home_rank = home.get('curatedRank', {}).get('current', 99)
     away_rank = away.get('curatedRank', {}).get('current', 99)
     
     broadcasts = comp.get('broadcasts', [{}])
     tv_name = broadcasts[0].get('names', ['TV N/A'])[0] if broadcasts else 'TV N/A'
     
-    diff = abs(home_score - away_score)
-    score = 0
-    reasons = []
+    # Situational context (possession, down & distance, drive context)
+    situation = comp.get('situation', {})
+    context_notes = []
     
+    diff = abs(home_score - away_score)
+    leader = home_name if home_score > away_score else away_name if away_score > home_score else None
+    trailer = away_name if home_score > away_score else home_name if away_score > home_score else None
+    
+    # 1. Drive & Score Context
     if state == 'in':
+        possession_id = situation.get('possession')
+        is_redzone = situation.get('isRedZone', False)
+        down_dist = situation.get('downDistanceText', '')
+        possession_text = situation.get('possessionText', '')
+        last_play = situation.get('lastPlay', {}).get('text', '')
+        
+        # Determine who has the ball
+        poss_team = home_name if possession_id == home.get('id') else away_name if possession_id == away.get('id') else ""
+
+        if is_redzone:
+            context_notes.append(f"🔴 **{poss_team} in RED ZONE** ({down_dist})")
+        elif poss_team and trailer and poss_team == trailer and diff <= 8 and period >= 3:
+            context_notes.append(f"⚡ **{trailer} driving to tie/take lead** ({down_dist})")
+        elif down_dist:
+            context_notes.append(f"🏈 {poss_team} ball: {down_dist}")
+
+        # Notable play callout
+        if last_play and ("TOUCHDOWN" in last_play or "INTERCEPTED" in last_play or "FUMBLE" in last_play or "field goal" in last_play.lower()):
+            context_notes.append(f"⚠️ *Play: {last_play}*")
+
+    elif state == 'post':
         if diff == 0:
-            score += 35
-            reasons.append("Tied")
+            context_notes.append("Ended in Tie")
         elif diff <= 3:
-            score += 30
-            reasons.append(f"±{diff} pts")
+            context_notes.append(f"🏁 {leader} won on a nail-biter (±{diff} pts)")
         elif diff <= 8:
-            score += 20
-            reasons.append(f"±{diff} pts")
-        elif diff <= 14:
-            score += 10
-            reasons.append(f"±{diff} pts")
+            context_notes.append(f"🏁 One-possession finish ({leader} by {diff})")
+        else:
+            context_notes.append(f"🏁 {leader} won by {diff}")
             
-        if period > 4:
-            score += 45
-            reasons.append("🚨 OVERTIME")
-        elif period == 4:
-            score += 30
-            reasons.append("4th Quarter")
-        elif period == 3:
-            score += 15
-            
-        if home_rank <= 25 and away_rank > 25 and away_score >= home_score:
+    # Excitement Calculation
+    score = 0
+    if state == 'in':
+        if diff == 0: score += 35
+        elif diff <= 3: score += 30
+        elif diff <= 8: score += 20
+        if period > 4: score += 45
+        elif period == 4: score += 30
+        elif period == 3: score += 15
+        if (home_rank <= 25 and away_rank > 25 and away_score >= home_score) or (away_rank <= 25 and home_rank > 25 and home_score >= away_score):
             score += 25
-            reasons.append(f"Upset: {away_name} over #{home_rank}")
-        elif away_rank <= 25 and home_rank > 25 and home_score >= away_score:
-            score += 25
-            reasons.append(f"Upset: {home_name} over #{away_rank}")
-            
+            context_notes.insert(0, "🚨 **UPSET IN PROGRESS**")
     elif state == 'post':
         score = 5
-        if diff <= 3:
-            reasons.append("Down-to-the-wire finish")
-        elif diff <= 8:
-            reasons.append("One-possession game")
-        if (home_rank <= 25 and away_rank > 25 and away_score > home_score) or \
-           (away_rank <= 25 and home_rank > 25 and home_score > away_score):
-            reasons.append("UPSET COMPLETE")
-            
+
+    away_str = f"#{away_rank} {away_name}" if away_rank <= 25 else away_name
+    home_str = f"#{home_rank} {home_name}" if home_rank <= 25 else home_name
+
     return {
-        "id": game['id'],
         "state": state,
-        "away_raw": away_name,
-        "home_raw": home_name,
-        "away_str": f"{f'#{away_rank} ' if away_rank <= 25 else ''}{away_name}",
-        "home_str": f"{f'#{home_rank} ' if home_rank <= 25 else ''}{home_name}",
+        "away_str": away_str,
+        "home_str": home_str,
         "away_score": away_score,
         "home_score": home_score,
         "home_rank": home_rank,
         "away_rank": away_rank,
-        "diff": diff,
-        "status_detail": detail,
+        "status": detail,
         "tv": tv_name,
         "score": min(100, score),
-        "note": ", ".join(reasons) if reasons else ""
+        "context": " | ".join(context_notes)
     }
 
-# --- PROCESS DATA ---
-group_id = CONFERENCE_MAP[selected_conf]
-events = fetch_games(group_id)
+# --- EXECUTE ---
+events = fetch_games(CONFERENCE_MAP[selected_conf])
 parsed = [parse_game(e) for e in events]
 
 if top25_only:
     parsed = [g for g in parsed if g['home_rank'] <= 25 or g['away_rank'] <= 25]
 
-if status_filter == "Live Only (On TV)":
+if status_filter == "Live Only":
     parsed = [g for g in parsed if g['state'] == 'in']
-elif status_filter == "Final Only (Completed)":
+elif status_filter == "Finals Only":
     parsed = [g for g in parsed if g['state'] == 'post']
 
-parsed.sort(key=lambda x: (x['state'] == 'in', x['score'], -x['diff']), reverse=True)
-live_games = [g for g in parsed if g['state'] == 'in']
+# Sort: Live games first by excitement, then upcoming/finals
+parsed.sort(key=lambda x: (x['state'] == 'in', x['score']), reverse=True)
 
-# --- APP HEADER ---
-st.title("🏈 College Football Live Command Center")
-st.caption(f"Tracking **{selected_conf}** | {len(parsed)} games")
-
-# --- QUAD-BOX MATRIX (LIVE WINDOW) ---
-if status_filter != "Final Only (Completed)":
-    st.header("📺 Optimal Quad-Box Matrix (Top 4 Live Screens)")
-    if len(live_games) == 0:
-        st.info("No games are currently live in this window. Check the scoreboard below.")
-    else:
-        quad_games = live_games[:4]
-        cols = st.columns(min(len(quad_games), 4))
-        for idx, g in enumerate(quad_games):
-            with cols[idx]:
-                with st.container(border=True):
-                    st.markdown(f"#### 🖥️ Screen {idx+1}: **{g['tv']}**")
-                    st.markdown(f"**{g['away_str']} {g['away_score']}** @ **{g['home_str']} {g['home_score']}**")
-                    st.write(f"⏱️ `{g['status_detail']}`")
-                    st.caption(f"⚡ **Index: {g['score']}/100** | {g['note']}")
-    st.divider()
-
-# --- SCOREBOARD & SOCIAL CONTEXT ---
-st.header("📋 Scoreboard & Live Reactions")
+# Compact Header
+st.markdown(f"**{selected_conf} Scores** &nbsp;•&nbsp; `{len(parsed)} games`", unsafe_allow_html=True)
 
 if not parsed:
-    st.warning("No games found matching your current filter.")
+    st.info("No games match the current filter.")
 else:
     for g in parsed:
-        border_box = True if g['state'] == 'in' else False
-        with st.container(border=border_box):
-            c1, c2, c3 = st.columns([3, 1, 1])
-            with c1:
-                st.subheader(f"{g['away_str']} {g['away_score']}  @  {g['home_str']} {g['home_score']}")
-                st.write(f"Status: **{g['status_detail']}** | Channel: **{g['tv']}**")
-                if g['note']:
-                    st.caption(f"⚡ *{g['note']}*")
-            with c2:
-                if g['state'] == 'in':
-                    st.metric("Excitement", f"{g['score']}/100")
-                elif g['state'] == 'post':
-                    st.metric("Margin", f"{g['diff']} pts")
-                else:
-                    st.write("Upcoming")
-            with c3:
-                if g['state'] == 'in':
-                    st.write("🔴 **ON TV NOW**")
-                elif g['state'] == 'post':
-                    st.write("🏁 **FINAL**")
-                else:
-                    st.write("⏳ **SCHEDULED**")
-
-            # 1. BLUESKY FAN REACTIONS
-            with st.expander("💬 What fans are saying on Bluesky"):
-                with st.spinner("Checking Bluesky chatter..."):
-                    social_posts = get_bluesky_buzz(g['away_raw'], g['home_raw'])
-                if social_posts:
-                    for post in social_posts:
-                        st.markdown(f"**@{post['author']}**: {post['text']}")
-                        st.divider()
-                else:
-                    st.caption("No recent Bluesky chatter found for this matchup yet.")
-
-            # 2. FINAL GAME SUMMARY (For completed games)
-            if g['state'] == 'post':
-                with st.expander("📖 View Game Summary & Deciding Plays"):
-                    with st.spinner("Loading recap..."):
-                        recap = fetch_game_recap(g['id'])
-                    
-                    if recap:
-                        if recap['headline']:
-                            st.markdown(f"**{recap['headline']}**")
-                        if recap['story']:
-                            st.write(recap['story'])
-                        
-                        if recap['clutch_plays']:
-                            st.markdown("##### ⏱️ Late-Game Deciding Plays:")
-                            for play in recap['clutch_plays']:
-                                st.write(f"- {play}")
-                    else:
-                        st.write("Detailed recap not yet published for this matchup.")
+        state_class = "game-live" if g['state'] == 'in' else "game-final" if g['state'] == 'post' else "game-upcoming"
+        status_badge = f"<span style='color:#ff4b4b;font-weight:700;'>LIVE</span>" if g['state'] == 'in' else g['status']
         
+        score_display = f"{g['away_score']} - {g['home_score']}" if g['state'] != 'pre' else "vs"
+        
+        context_html = f"<div class='context-line'>{g['context']}</div>" if g['context'] else ""
+
+        html = f"""
+        <div class="game-row {state_class}">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="team-line">{g['away_str']} &nbsp;{g['away_score'] if g['state'] != 'pre' else ''} &nbsp;@&nbsp; {g['home_str']} &nbsp;{g['home_score'] if g['state'] != 'pre' else ''}</div>
+                <div style="font-size: 0.85rem; font-weight: 600; text-align: right;">{status_badge}</div>
+            </div>
+            <div class="meta-line">📺 {g['tv']} &nbsp;|&nbsp; ⏱️ {g['status']} &nbsp;|&nbsp; Index: {g['score']}/100</div>
+            {context_html}
+        </div>
+        """
+        st.markdown(html, unsafe_allow_html=True)
