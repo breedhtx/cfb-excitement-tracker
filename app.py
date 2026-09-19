@@ -6,7 +6,7 @@ st.set_page_config(page_title="College Football Heat Map", page_icon="🏈", lay
 
 # Embedded High-Quality Flame & Football SVG Logo
 LOGO_SVG = """
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width: 58px; height: 58px; margin-right: 14px; border-radius: 12px; vertical-align: middle; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width: 52px; height: 52px; margin-right: 12px; border-radius: 12px; vertical-align: middle; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
   <defs>
     <linearGradient id="skyBg" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#0b0a10"/>
@@ -38,33 +38,23 @@ LOGO_SVG = """
   </defs>
 
   <rect width="512" height="512" rx="110" fill="url(#skyBg)"/>
-
-  <!-- Red Outer Flames -->
   <path d="M 0 512 L 0 320 C 20 280, 35 210, 45 130 C 55 220, 75 250, 95 190 C 115 130, 130 70, 145 20 C 160 90, 185 180, 205 130 C 225 80, 240 30, 256 0 C 272 30, 287 80, 307 130 C 327 180, 352 90, 367 20 C 382 70, 397 130, 417 190 C 437 250, 457 220, 467 130 C 477 210, 492 280, 512 320 L 512 512 Z" fill="url(#redFlame)"/>
-
-  <!-- Orange Mid Flames -->
   <path d="M 0 512 L 0 370 C 30 330, 50 260, 65 180 C 80 250, 105 260, 125 210 C 145 150, 160 100, 185 60 C 200 130, 225 180, 240 120 C 250 80, 256 50, 256 50 C 256 50, 262 80, 272 120 C 287 180, 312 130, 327 60 C 352 100, 367 150, 387 210 C 407 260, 432 250, 447 180 C 462 260, 482 330, 512 370 L 512 512 Z" fill="url(#orangeFlame)"/>
-
-  <!-- Yellow Core Flames -->
   <path d="M 0 512 L 0 420 C 40 380, 80 300, 105 230 C 125 300, 150 280, 175 200 C 195 140, 215 130, 230 100 C 245 150, 256 160, 256 160 C 256 160, 267 150, 282 100 C 297 130, 317 140, 337 200 C 362 280, 387 300, 407 230 C 432 300, 472 380, 512 420 L 512 512 Z" fill="url(#yellowFlame)"/>
 
-  <!-- Sparks -->
   <circle cx="85" cy="80" r="4.5" fill="#fff59d"/>
   <circle cx="195" cy="35" r="3.5" fill="#ffe082"/>
   <circle cx="320" cy="30" r="4" fill="#fff59d"/>
   <circle cx="430" cy="75" r="3.5" fill="#ffe082"/>
 
-  <!-- Sideways Football & Drop Shadow -->
   <path d="M 110 264 C 185 138, 327 138, 402 264 C 327 390, 185 390, 110 264 Z" fill="#000000" opacity="0.6"/>
   <path d="M 110 256 C 185 130, 327 130, 402 256 C 327 382, 185 382, 110 256 Z" fill="url(#leather)" stroke="#1a0803" stroke-width="3"/>
 
-  <!-- White Stripes -->
   <g clip-path="url(#ballClip)">
     <ellipse cx="145" cy="256" rx="14" ry="68" fill="none" stroke="#ffffff" stroke-width="15" opacity="0.95"/>
     <ellipse cx="367" cy="256" rx="14" ry="68" fill="none" stroke="#ffffff" stroke-width="15" opacity="0.95"/>
   </g>
 
-  <!-- Laces -->
   <line x1="115" y1="256" x2="397" y2="256" stroke="#1f0902" stroke-width="2.5"/>
   <g stroke="#ffffff" stroke-linecap="round">
     <line x1="205" y1="256" x2="307" y2="256" stroke-width="6.5"/>
@@ -77,7 +67,6 @@ LOGO_SVG = """
 </svg>
 """
 
-# High-density mobile styles
 st.markdown("""
 <style>
     .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
@@ -92,7 +81,7 @@ st.markdown("""
     .heat-monitor { border-left-color: #ffaa00 !important; }
     .heat-routine { border-left-color: #4a5568 !important; }
     .team-line { font-size: 1.02rem; font-weight: 700; }
-    .badge-urgent { color: #ff4d4d; font-weight: 800; font-size: 0.85rem; letter-spacing: 0.5px; }
+    .badge-urgent { color: #ff4d4d; font-weight: 800; font-size: 0.85rem; }
     .badge-monitor { color: #ffbb33; font-weight: 700; font-size: 0.85rem; }
     .badge-routine { color: #a0aec0; font-weight: 600; font-size: 0.82rem; }
     .meta-line { font-size: 0.82rem; color: #a0aec0; margin-top: 2px; }
@@ -102,7 +91,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 CONFERENCE_MAP = {
-    "All FBS": 80,
+    "All FBS": None,
     "SEC": 8,
     "Big Ten": 4,
     "Big 12": 9,
@@ -155,24 +144,22 @@ with st.sidebar:
     top25_only = st.checkbox("Ranked Teams Only (Top 25)", value=False)
     
     st.divider()
-    auto_refresh = st.checkbox("⚡ Auto-refresh (every 15s)", value=True)
-    if st.button("🔄 Force Refresh Now"):
+    if st.button("🔄 Force Refresh"):
         st.cache_data.clear()
         st.rerun()
 
 # --- HIGH-SPEED API FETCH ---
-@st.cache_data(ttl=8)
+@st.cache_data(ttl=10)
 def fetch_games(group_id):
     timestamp = int(time.time())
-    url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=100&_ts={timestamp}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache",
-        "Expires": "0"
-    }
+    if group_id:
+        url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups={group_id}&limit=100&_ts={timestamp}"
+    else:
+        url = f"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?limit=100&_ts={timestamp}"
+    
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        res = requests.get(url, headers=headers, timeout=5)
+        res = requests.get(url, headers=headers, timeout=6)
         if res.status_code == 200:
             return res.json().get('events', [])
     except Exception:
@@ -180,27 +167,43 @@ def fetch_games(group_id):
     return []
 
 def parse_game(game):
-    comp = game['competitions'][0]
-    status = comp['status']
-    state = status['type']['state']
-    detail = status['type'].get('detail', '')
+    competitions = game.get('competitions', [])
+    if not competitions:
+        return None
+    comp = competitions[0]
+    
+    status = comp.get('status', {})
+    status_type = status.get('type', {})
+    state = status_type.get('state', 'pre')
+    detail = status_type.get('shortDetail') or status_type.get('detail', 'Scheduled')
     period = status.get('period', 1)
     
-    home = comp['competitors'][0]
-    away = comp['competitors'][1]
+    competitors = comp.get('competitors', [])
+    if len(competitors) < 2:
+        return None
+        
+    home = competitors[0]
+    away = competitors[1]
     
-    home_name = home['team']['shortDisplayName']
-    away_name = away['team']['shortDisplayName']
-    home_score = int(home.get('score', 0))
-    away_score = int(away.get('score', 0))
+    home_name = home.get('team', {}).get('shortDisplayName') or home.get('team', {}).get('name', 'Home')
+    away_name = away.get('team', {}).get('shortDisplayName') or away.get('team', {}).get('name', 'Away')
+    
+    try:
+        home_score = int(home.get('score', 0))
+    except (ValueError, TypeError):
+        home_score = 0
+        
+    try:
+        away_score = int(away.get('score', 0))
+    except (ValueError, TypeError):
+        away_score = 0
     
     home_rank = home.get('curatedRank', {}).get('current', 99)
     away_rank = away.get('curatedRank', {}).get('current', 99)
     
-    broadcasts = comp.get('broadcasts', [{}])
-    tv_name = broadcasts[0].get('names', ['TV N/A'])[0] if broadcasts else 'TV N/A'
+    broadcasts = comp.get('broadcasts', [])
+    tv_name = broadcasts[0].get('names', ['TV N/A'])[0] if broadcasts and broadcasts[0].get('names') else 'TV N/A'
     
-    # Odds / Point Spread
     odds_list = comp.get('odds', [])
     line_display = "Line: N/A"
     if odds_list:
@@ -219,15 +222,12 @@ def parse_game(game):
     
     diff = abs(home_score - away_score)
     leader = home_name if home_score > away_score else away_name if away_score > home_score else None
-    trailer = away_name if home_score > away_score else home_name if away_score > home_score else None
 
-    # Rivalry check
     pair = frozenset([home_name, away_name])
     rivalry_title = RIVALRIES.get(pair, None)
     if rivalry_title:
         context_notes.append(f"🏆 **{rivalry_title}**")
         
-    # Drive calculation
     current_drive_num = 0
     if situation:
         current_drive_num = situation.get('currentDrive', {}).get('driveNumber', 0)
@@ -236,7 +236,6 @@ def parse_game(game):
 
     past_early_game = (period >= 2) or (current_drive_num >= 6)
 
-    # In-game situational context
     if state == 'in':
         possession_id = situation.get('possession')
         is_redzone = situation.get('isRedZone', False)
@@ -247,12 +246,10 @@ def parse_game(game):
 
         if is_redzone:
             context_notes.append(f"🔴 **{poss_team} in RED ZONE** ({down_dist})")
-        elif poss_team and trailer and poss_team == trailer and diff <= 8 and period >= 3:
-            context_notes.append(f"⚡ **{trailer} driving to tie/take lead** ({down_dist})")
         elif down_dist:
             context_notes.append(f"🏈 {poss_team} ball: {down_dist}")
 
-        if last_play and ("TOUCHDOWN" in last_play or "INTERCEPTED" in last_play or "FUMBLE" in last_play or "field goal" in last_play.lower()):
+        if last_play and any(k in last_play for k in ["TOUCHDOWN", "INTERCEPTED", "FUMBLE", "field goal"]):
             context_notes.append(f"⚠️ *Play: {last_play}*")
 
     elif state == 'post':
@@ -265,7 +262,6 @@ def parse_game(game):
 
     # --- HEAT MAP INDEX ---
     score = 0
-    
     if home_rank <= 25 and away_rank <= 25:
         score += 18
         if home_rank <= 10 and away_rank <= 10:
@@ -298,7 +294,6 @@ def parse_game(game):
 
     total_index = min(100, score)
 
-    # Label Tiers
     if total_index >= 75:
         heat_tier = "urgent"
         label = "🚨 CHANGE THE CHANNEL NOW"
@@ -331,7 +326,8 @@ def parse_game(game):
 
 # --- RUN AND RENDER ---
 events = fetch_games(CONFERENCE_MAP[selected_conf])
-parsed = [parse_game(e) for e in events]
+parsed = [parse_game(e) for e in events if e]
+parsed = [g for g in parsed if g is not None]
 
 if top25_only:
     parsed = [g for g in parsed if g['home_rank'] <= 25 or g['away_rank'] <= 25]
@@ -348,7 +344,7 @@ st.markdown(f"""
 <div class="header-box">
     {LOGO_SVG}
     <div>
-        <h2 style="margin: 0; padding: 0; font-size: 1.8rem; font-weight: 800;">College Football Heat Map</h2>
+        <h2 style="margin: 0; padding: 0; font-size: 1.75rem; font-weight: 800;">College Football Heat Map</h2>
         <div style="font-size: 0.85rem; color: #a0aec0;">Tracking <strong>{selected_conf}</strong> &nbsp;•&nbsp; {len(parsed)} games</div>
     </div>
 </div>
@@ -375,9 +371,4 @@ else:
         </div>
         """
         st.markdown(html, unsafe_allow_html=True)
-
-# 15-second background auto-refresh
-if auto_refresh:
-    time.sleep(15)
-    st.rerun()
-        
+      
