@@ -114,8 +114,23 @@ def parse_game(game):
     home_rank = home.get('curatedRank', {}).get('current', 99)
     away_rank = away.get('curatedRank', {}).get('current', 99)
     
+    # Broadcast / TV channel
     broadcasts = comp.get('broadcasts', [{}])
     tv_name = broadcasts[0].get('names', ['TV N/A'])[0] if broadcasts else 'TV N/A'
+    
+    # Point Spread & Betting Line
+    odds_list = comp.get('odds', [])
+    line_display = "Line: N/A"
+    if odds_list:
+        odds = odds_list[0]
+        details = odds.get('details') # e.g. "ALA -7.5"
+        over_under = odds.get('overUnder')
+        if details:
+            line_display = f"Line: {details}"
+            if over_under:
+                line_display += f" (O/U {over_under})"
+        elif over_under:
+            line_display = f"O/U: {over_under}"
     
     situation = comp.get('situation', {})
     context_notes = []
@@ -130,6 +145,20 @@ def parse_game(game):
     if rivalry_title:
         context_notes.append(f"🏆 **{rivalry_title}**")
         
+    # Drive Count Estimation for Live Games
+    # situation.get('lastPlay') or scoring drives count
+    current_drive_num = 0
+    if situation:
+        current_drive_num = situation.get('currentDrive', {}).get('driveNumber', 0)
+        if not current_drive_num:
+            # Fallback estimation based on plays/scores
+            current_drive_num = situation.get('lastPlay', {}).get('drive', {}).get('driveNumber', 0)
+
+    # Both teams had 3 drives condition:
+    # If period > 1, 1st quarter is complete.
+    # If period == 1, check if total drives in the game >= 6 (at least 3 per team).
+    past_early_game = (period >= 2) or (current_drive_num >= 6)
+
     # Situational context for live games
     if state == 'in':
         possession_id = situation.get('possession')
@@ -183,8 +212,11 @@ def parse_game(game):
         elif period == 4: score += 25   # 4th quarter
         elif period == 3: score += 12   # 2nd half
         
-        if (home_rank <= 25 and away_rank > 25 and away_score >= home_score) or \
-           (away_rank <= 25 and home_rank > 25 and home_score >= away_score):
+        # Upset in progress against ranked team (ONLY after Q1 or 3 drives per team)
+        is_potential_upset = (home_rank <= 25 and away_rank > 25 and away_score >= home_score) or \
+                             (away_rank <= 25 and home_rank > 25 and home_score >= away_score)
+        
+        if is_potential_upset and past_early_game:
             score += 25
             context_notes.insert(0, "🚨 **UPSET ALERT**")
 
@@ -217,6 +249,7 @@ def parse_game(game):
         "away_rank": away_rank,
         "status": detail,
         "tv": tv_name,
+        "line": line_display,
         "index": total_index,
         "heat_tier": heat_tier,
         "label": label,
@@ -256,9 +289,8 @@ else:
                 <div class="team-line">{g['away_str']} &nbsp;{g['away_score'] if g['state'] != 'pre' else ''} &nbsp;@&nbsp; {g['home_str']} &nbsp;{g['home_score'] if g['state'] != 'pre' else ''}</div>
                 <div class="{badge_class}">{g['label']}</div>
             </div>
-            <div class="meta-line">📺 {g['tv']} &nbsp;|&nbsp; ⏱️ {status_badge} ({g['status']}) &nbsp;|&nbsp; Heat Index: <strong>{g['index']}/100</strong></div>
+            <div class="meta-line">📺 {g['tv']} &nbsp;|&nbsp; 🎲 {g['line']} &nbsp;|&nbsp; ⏱️ {status_badge} ({g['status']}) &nbsp;|&nbsp; Heat Index: <strong>{g['index']}/100</strong></div>
             {context_html}
         </div>
         """
         st.markdown(html, unsafe_allow_html=True)
-        
